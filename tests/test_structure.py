@@ -32,7 +32,9 @@ def check_class_methods(filepath, class_name, required_methods):
     return False, [f"Class {class_name} not found"]
 
 # Test files
-base_path = '/home/runner/work/Proficiency_Probing/Proficiency_Probing/src/proficiency_probing'
+test_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(test_dir)
+base_path = os.path.join(project_root, 'src', 'proficiency_probing')
 
 files_to_check = {
     '__init__.py': os.path.join(base_path, '__init__.py'),
@@ -102,9 +104,10 @@ else:
 
 print()
 print("3. Checking example files...")
+examples_dir = os.path.join(project_root, 'examples')
 example_files = [
-    '/home/runner/work/Proficiency_Probing/Proficiency_Probing/examples/basic_usage.py',
-    '/home/runner/work/Proficiency_Probing/Proficiency_Probing/examples/layer_head_exploration.py',
+    os.path.join(examples_dir, 'basic_usage.py'),
+    os.path.join(examples_dir, 'layer_head_exploration.py'),
 ]
 
 for example_file in example_files:

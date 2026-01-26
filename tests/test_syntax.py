@@ -7,7 +7,10 @@ import sys
 import os
 
 # Add src to path
-sys.path.insert(0, '/home/runner/work/Proficiency_Probing/Proficiency_Probing/src')
+test_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(test_dir)
+src_dir = os.path.join(project_root, 'src')
+sys.path.insert(0, src_dir)
 
 try:
     # Test imports
