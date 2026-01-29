@@ -58,6 +58,7 @@ class TextEmbedder:
             output_attentions=(head_index is not None)
         ).to(self.device)
         self.model.eval()
+
         
     def _pool_embeddings(
         self, 

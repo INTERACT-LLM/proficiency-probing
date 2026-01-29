@@ -54,7 +54,7 @@ htmlcov/
 *.bin
 *.h5
 *.ckpt
-data/
+data/*
 models/
 checkpoints/
 
