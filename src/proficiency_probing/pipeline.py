@@ -32,7 +32,6 @@ class ProficiencyProbingPipeline:
         self,
         model_name: str = "bert-base-uncased",
         layer_index: int = -1,
-        head_index: Optional[int] = None,
         pooling: str = "mean",
         device: Optional[str] = None
     ):
@@ -42,7 +41,6 @@ class ProficiencyProbingPipeline:
         Args:
             model_name: Name or path of the HuggingFace model
             layer_index: Which layer to extract embeddings from
-            head_index: Which attention head to use (None for full representation)
             pooling: Pooling strategy ('mean', 'cls', or 'max')
             device: Device to run on
         """
@@ -50,7 +48,6 @@ class ProficiencyProbingPipeline:
             model_name=model_name,
             device=device,
             layer_index=layer_index,
-            head_index=head_index,
             pooling=pooling
         )
         self.probe = None
@@ -92,7 +89,6 @@ class ProficiencyProbingPipeline:
             print(f"Pipeline Configuration:")
             print(f"  Model: {self.embedder.model_name}")
             print(f"  Layer: {self.embedder.layer_index}")
-            print(f"  Head: {self.embedder.head_index}")
             print(f"  Pooling: {self.embedder.pooling}")
             print()
         
@@ -206,6 +202,7 @@ class ProficiencyProbingPipeline:
             print(f"  Loss: {metrics['loss']:.4f}")
             print(f"  Accuracy: {metrics['accuracy']:.4f}")
             print(f"  MAE: {metrics['mae']:.4f}")
+            print(f"  QWK: {metrics['qwk']:.4f}")
         
         return metrics
     
@@ -327,7 +324,6 @@ class ProficiencyProbingPipeline:
         config = {
             "model_name": self.embedder.model_name,
             "layer_index": self.embedder.layer_index,
-            "head_index": self.embedder.head_index,
             "pooling": self.embedder.pooling,
             "num_classes": self.num_classes,
             "input_dim": self.probe.input_dim
@@ -361,7 +357,6 @@ class ProficiencyProbingPipeline:
         pipeline = cls(
             model_name=config["model_name"],
             layer_index=config["layer_index"],
-            head_index=config["head_index"],
             pooling=config["pooling"],
             device=device
         )

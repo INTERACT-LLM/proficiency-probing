@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from torch.utils.data import TensorDataset, DataLoader
 import numpy as np
 from typing import Optional, Tuple, Dict
-from sklearn.metrics import accuracy_score, mean_absolute_error
+from sklearn.metrics import accuracy_score, cohen_kappa_score, mean_absolute_error
 from tqdm import tqdm
 
 
@@ -163,6 +163,7 @@ class OrdinalProbe(nn.Module):
             history["val_loss"] = []
             history["val_acc"] = []
             history["val_mae"] = []
+            history["val_qwk"] = [] # quadratic weighted kappa
         
         # Training loop
         for epoch in range(epochs):
@@ -202,11 +203,12 @@ class OrdinalProbe(nn.Module):
             train_loss = np.mean(train_losses)
             train_acc = accuracy_score(train_labels, train_preds)
             train_mae = mean_absolute_error(train_labels, train_preds)
+            train_qwk = cohen_kappa_score(train_labels, train_preds, weights='quadratic')
             
             history["train_loss"].append(train_loss)
             history["train_acc"].append(train_acc)
             history["train_mae"].append(train_mae)
-            
+            history["train_qwk"].append(train_qwk)
             if verbose:
                 print(f"Epoch {epoch+1}/{epochs} - "
                       f"Loss: {train_loss:.4f}, Acc: {train_acc:.4f}, MAE: {train_mae:.4f}")

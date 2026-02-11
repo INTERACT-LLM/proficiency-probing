@@ -49,7 +49,6 @@ def main():
     pipeline = ProficiencyProbingPipeline(
         model_name="sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
         layer_index=-1,  # Use last layer
-        head_index=None,  # Use full representation (not specific head)
         pooling="mean"    # Mean pooling over tokens
         
     )
