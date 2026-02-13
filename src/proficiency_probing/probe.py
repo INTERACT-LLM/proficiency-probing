@@ -156,7 +156,8 @@ class OrdinalProbe(nn.Module):
         history = {
             "train_loss": [],
             "train_acc": [],
-            "train_mae": []
+            "train_mae": [],
+            "train_qwk": []
         }
         
         if X_val is not None and y_val is not None:
@@ -211,7 +212,7 @@ class OrdinalProbe(nn.Module):
             history["train_qwk"].append(train_qwk)
             if verbose:
                 print(f"Epoch {epoch+1}/{epochs} - "
-                      f"Loss: {train_loss:.4f}, Acc: {train_acc:.4f}, MAE: {train_mae:.4f}")
+                      f"Loss: {train_loss:.4f}, Acc: {train_acc:.4f}, MAE: {train_mae:.4f}, QWK: {train_qwk:.4f}")
             
             # Validation
             if X_val is not None and y_val is not None:
@@ -219,10 +220,10 @@ class OrdinalProbe(nn.Module):
                 history["val_loss"].append(val_metrics["loss"])
                 history["val_acc"].append(val_metrics["accuracy"])
                 history["val_mae"].append(val_metrics["mae"])
-                
+                history["val_qwk"].append(val_metrics["qwk"])
                 if verbose:
                     print(f"  Val - Loss: {val_metrics['loss']:.4f}, "
-                          f"Acc: {val_metrics['accuracy']:.4f}, MAE: {val_metrics['mae']:.4f}")
+                          f"Acc: {val_metrics['accuracy']:.4f}, MAE: {val_metrics['mae']:.4f}, QWK: {val_metrics['qwk']:.4f}")
         
         return history
     
@@ -278,7 +279,8 @@ class OrdinalProbe(nn.Module):
         return {
             "loss": np.mean(losses),
             "accuracy": accuracy_score(all_labels, all_preds),
-            "mae": mean_absolute_error(all_labels, all_preds)
+            "mae": mean_absolute_error(all_labels, all_preds),
+            "qwk": cohen_kappa_score(all_labels, all_preds, weights='quadratic')
         }
     
     def predict_proba(

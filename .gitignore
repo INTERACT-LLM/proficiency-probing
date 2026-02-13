@@ -69,3 +69,6 @@ temp/
 
 # OS
 Thumbs.db
+
+
+src/cache/*

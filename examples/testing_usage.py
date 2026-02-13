@@ -53,8 +53,8 @@ def main():
         
     )
     print("Pipeline initialized.")
-    pipeline.fit(data["train"]["text"], data["train"]["labels"])
-    pipeline.evaluate(data["test"]["text"], data["test"]["labels"])
+    pipeline.fit(data["test"]["text"], data["test"]["labels"])
+    #pipeline.evaluate(data["test"]["text"], data["test"]["labels"])
     print("Evaluation complete.")
 
     # %%

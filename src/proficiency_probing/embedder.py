@@ -101,8 +101,7 @@ class TextEmbedder:
             texts: List of text strings to embed
             batch_size: Batch size for processing
             max_length: Maximum sequence length
-            show_progress: Whether to show progress bar
-            
+            show_progress: Whether to show progress bar            
         Returns:
             Array of embeddings [num_texts, embedding_dim]
         """

@@ -8,10 +8,14 @@ import numpy as np
 from .embedder import TextEmbedder
 
 class EmbeddingCache:
-    def __init__(self, embedder: Optional[TextEmbedder] = None, texts : Optional[list] = None, cache_path: Optional[str] = None):
+    def __init__(self, embedder: Optional[TextEmbedder] = None, texts : Optional[list] = None, cache_path: Optional[str] = None, batch_size: int = 32, max_length: int = 512, show_progress: bool = True):
         self.embedder : Optional[TextEmbedder] = embedder
         self.text_input = texts
         self.cached_path : Optional[str] = cache_path # Optional path for disk caching
+        self.batch_size = batch_size
+        self.max_length = max_length
+        self.show_progress = show_progress
+
         if (embedder is None or texts is None) and cache_path is None:
             raise ValueError("Must provide either an embedder and texts or a cache path to load from.")
 
@@ -21,7 +25,6 @@ class EmbeddingCache:
             self.cached_model_name : str = embedder.model_name
             self.cached_layer_index : int = embedder.layer_index
             self.cached_pooling : str = embedder.pooling
-
             self.cached_embeddings : Optional[np.ndarray] = None  # In-memory cache
 
         if cache_path is not None:
@@ -31,9 +34,7 @@ class EmbeddingCache:
                 self.load_from_disk(self.cached_path)
             # else: save path for saving later
 
-
-    # ===== OBS: Text imput is currently wrong =====
-    def get_embeddings(self):
+    def get_embeddings(self) -> np.ndarray:
         # Logic: Check memory → Check disk → Compute fresh
         if self.cached_embeddings is not None: # Always use cached embeddings if possible, even if cache_path is provided, to avoid redundant disk I/O.
             print("Using cached embeddings from memory.")
@@ -46,7 +47,10 @@ class EmbeddingCache:
             print("No cache found. Computing embeddings.")
             if self.embedder is None or self.text_input is None:
                 raise ValueError("Cannot compute embeddings without an embedder and text input.")
-            self.cached_embeddings = self.embedder.embed_texts(self.text_input)
+            self.cached_embeddings = self.embedder.embed_texts(self.text_input,
+                                                               batch_size=self.batch_size,
+                                                               max_length=self.max_length,
+                                                               show_progress=self.show_progress)
             if self.cached_path is not None:
                 if not os.path.exists(self.cached_path):
                     print(f"Cache path {self.cached_path} does not exist. Creating directories.")
@@ -68,7 +72,10 @@ class EmbeddingCache:
             texts=self.text_input,
             model_name=self.embedder.model_name,
             layer_index=self.embedder.layer_index,
-            pooling=self.embedder.pooling
+            pooling=self.embedder.pooling,
+            batch_size=self.batch_size,
+            max_length=self.max_length,
+            show_progress=self.show_progress
         )
         print(f"Succesfully saved embeddings to: {path}")
         
@@ -79,11 +86,14 @@ class EmbeddingCache:
         There is no need to load the TextEmbedder itself, as no new embeddings are needed.
         """
         data = np.load(path, allow_pickle=True)  # Need allow_pickle=True for non-arrays
-        self.cached_embeddings = data['embeddings']
+        self.cached_embeddings : np.ndarray = data['embeddings']
         self.cached_texts = list(data['texts'])
         self.cached_model_name = str(data['model_name'])
         self.cached_layer_index = int(data['layer_index'])
         self.cached_pooling = str(data['pooling'])
+        self.batch_size = int(data['batch_size'])
+        self.max_length = int(data['max_length'])
+        self.show_progress = bool(data['show_progress'])
         print(f"Loaded embeddings from {path}:")
         print(f"  Model: {self.cached_model_name}")
         print(f"  Layer: {self.cached_layer_index}")
