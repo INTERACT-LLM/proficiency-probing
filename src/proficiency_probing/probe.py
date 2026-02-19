@@ -339,3 +339,50 @@ class OrdinalProbe(nn.Module):
         """
         probs = self.predict_proba(X, batch_size=batch_size, device=device)
         return np.argmax(probs, axis=1)
+    def get_linear_scores(
+        self,
+        X: np.ndarray,
+        batch_size: int = 32,
+        device: Optional[str] = None
+    ) -> np.ndarray:
+        """
+        Extract the raw linear projection scores (before thresholding).
+        
+        Args:
+            X: Embeddings [num_samples, input_dim]
+            batch_size: Batch size for prediction
+            device: Device to predict on
+            
+        Returns:
+            Linear scores [num_samples] - the latent variable before thresholds
+        """
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+        self.to(device)
+        self.eval()
+        
+        X_tensor = torch.FloatTensor(X)
+        dataset = TensorDataset(X_tensor)
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+        
+        all_scores = []
+        
+        with torch.no_grad():
+            for (batch_X,) in loader:
+                batch_X = batch_X.to(device)
+                projected = self.linear(batch_X).squeeze(-1)  # [batch_size]
+                all_scores.append(projected.cpu().numpy())
+        
+        return np.concatenate(all_scores)
+    
+    def get_thresholds(self) -> np.ndarray:
+        """
+        Get the learned thresholds.
+        
+        Returns:
+            Threshold values [num_classes - 1]
+        """
+        with torch.no_grad():
+            sorted_thresholds = torch.sort(self.thresholds)[0]
+            return sorted_thresholds.cpu().numpy()
