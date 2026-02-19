@@ -75,37 +75,27 @@ X_train, X_val, y_train, y_val = train_test_split(
     random_state=889
 )
 
-probe = OrdinalProbe(
-    input_dim=cefr_embeddings.shape[1],
-    num_classes=len(level_order)
-    )
 
+
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_absolute_error
+model = LinearRegression()
+model.fit(X_train, y_train)
+
+
+y_pred = model.predict(X_val)
+val_mae = mean_absolute_error(y_val, y_pred)
+print(f"  Val MAE: {val_mae:.4f}")
+    
 print(f"  Train samples: {len(X_train)}")
 print(f"  Val samples: {len(X_val)}")
 print()
         
-# Train probe
-history = probe.fit(
-    X_train=X_train,
-    y_train=y_train,
-    X_val=X_val,
-    y_val=y_val,
-    device=embedder.device,
-    verbose=False,
-    epochs=250
-    )
-# %%
-# Print training results for 'val_loss', 'val_acc', 'val_mae', 'val_qwk'
-print("Final Validation Results:")
-print(f"  Val Loss: {history['val_loss'][-1]:.4f}")
-print(f"  Val Accuracy: {history['val_acc'][-1]:.4f}")
-print(f"  Val Mean Absolute Error: {history['val_mae'][-1]:.4f}")
-print(f"  Val Quadratic Weighted Kappa: {history['val_qwk'][-1]:.4f}")
 
 # %%
 # Test the probe on out-of-distribution data (e.g., a different dataset or a subset of the original dataset)
 print("=" * 70)
-print("Testing Probe on Out-of-Distribution Data")
+print("Testing Linear Regression on Out-of-Distribution Data")
 print("=" * 70)
 print()
 
@@ -131,7 +121,7 @@ print("\nGetting embeddings for COWSL2H dataset with caching...")
 cowsl2h_embeddings = cowsl2h_cache.get_embeddings()
 
 print("\nGetting linear probe scores for COWSL2H dataset...")
-cowsl2h_df["scores"] = probe.get_linear_scores(cowsl2h_embeddings)
+cowsl2h_df["scores"] = model.predict(cowsl2h_embeddings)
 
 # %%
 # Writing ability has multiple levels 1-5. But there is some string versions included aswell. We will convert these strings to numeric values for easier analysis.
@@ -167,31 +157,27 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 plt.figure(figsize=(10, 6))
 sns.boxplot(x="writing_ability_numeric", y="scores", data=cowsl2h_df)
-plt.title("Probe Scores vs Writing Ability Levels")
+plt.title("Linear Regression Scores vs Writing Ability Levels")
 plt.xlabel("Self-reported Writing Ability Level")
 plt.ylabel("Probe Scores")
 plt.xticks(rotation=45)
 
 # Save the plot
-plt.savefig(f"./src/plots/COWSL2H_{model_name.replace('/', '_')}_{layer_index}_{pooling}.png")
+plt.savefig(f"./src/plots/LR_COWSL2H_{model_name.replace('/', '_')}_{layer_index}_{pooling}.png")
 plt.show()
 
 
 # %%
 # Predict probe scores for cefr_embeddings and plot grouped by CEFR levels
-cefr_df["probe_scores"] = probe.get_linear_scores(cefr_embeddings)
+cefr_df["probe_scores"] = model.predict(cefr_embeddings)
 plt.figure(figsize=(10, 6))
 sns.boxplot(x="cefr_level", y="probe_scores", data=cefr_df)
-# plot thresholds as vertical lines
-tresholds = probe.get_thresholds()
-for threshold in tresholds:
-    plt.axhline(y=threshold, color='r', linestyle='--', label=f'Threshold: {threshold:.2f}')
-plt.suptitle(f"Probe Scores vs CEFR Levels - Layer: {layer_index}")
-plt.title(f"Loss: {history['val_loss'][-1]:.4f}, Acc: {history['val_acc'][-1]:.4f}, MAE: {history['val_mae'][-1]:.4f}, QWK: {history['val_qwk'][-1]:.4f}")
+plt.suptitle(f"Linear Regression vs CEFR Levels - Layer: {layer_index}")
+plt.title(f"Loss: {val_mae:.4f}")
 plt.xlabel("CEFR Level")
 plt.ylabel("Probe Scores")
 plt.xticks(rotation=45)
-path = f"./src/plots/CEFR_{model_name.replace('/', '_')}_{layer_index}_{pooling}.png"
+path = f"./src/plots/LR_CEFR_{model_name.replace('/', '_')}_{layer_index}_{pooling}.png"
 plt.savefig(path)
 plt.show()  
 

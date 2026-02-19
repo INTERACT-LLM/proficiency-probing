@@ -7,54 +7,42 @@ import pandas as pd
 np.random.seed(889)
 
 
+
+
+
 # %%
 def main():
     # %% Load Data and Initialize Pipeline
     print("=" * 70)
     print("Proficiency Probing Pipeline - CEFR")
     print("=" * 70)
-    data_paths = {
-        "train": "../src/data/train_cefr_dataset.csv",
-        "test": "../src/data/test_cefr_dataset.csv",}
+    
+    # Load 
     level_order = {"A1": 0, "A2": 1, "B1": 2, "B2": 3, "C1": 4, "C2": 5}
-    def load_text_classification_data(
-        data_paths,
-        level_order,
-        text_col="text",
-        label_col="cefr_level",
-    ):
-        data = {}
-        print("Loading dataset...")
-
-        for split, path in data_paths.items():
-            print(f"  Loading {split} data from {path}...")
-            df = pd.read_csv(path)
-            texts = df[text_col].tolist()
-            labels = [level_order[l] for l in df[label_col]]
-
-            print(f"  Loaded {len(texts)} {split} samples")
-            print(f"  Label distribution: {np.bincount(labels)}")
-
-            data[split] = {
-                "df": df,
-                "text": texts,
-                "labels": labels,
-            }
-
-        print("Dataset loaded successfully.\n")
-        return data
-
-    data = load_text_classification_data(data_paths, level_order)
+    
+    
+    # Save merged dataframe to a new CSV file
+    data["full"]["df"].to_csv("../src/data/full_cefr_dataset.csv", index=False)
+    print("Merged train and test data into full_cefr_dataset.csv\n")    
+    
 
     pipeline = ProficiencyProbingPipeline(
         model_name="sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
         layer_index=-1,  # Use last layer
-        pooling="mean"    # Mean pooling over tokens
-        
+        pooling="mean"    # Mean pooling over tokens      
     )
     print("Pipeline initialized.")
-    pipeline.fit(data["test"]["text"], data["test"]["labels"])
-    #pipeline.evaluate(data["test"]["text"], data["test"]["labels"])
+    pipeline.fit(
+        texts=data["full"]["text"], 
+        labels=data["full"]["labels"],
+        cache_path="../src/cache/embeddings.npz",
+        )
+    
+    pipeline.evaluate(
+        texts=data["test"]["text"], 
+        labels=data["test"]["labels"],
+        cache_path="../src/cache/test_embeddings.npz",
+        )
     print("Evaluation complete.")
 
     # %%

@@ -253,7 +253,7 @@ class ProficiencyProbingPipeline:
         assert self.probe is not None # for type checker
 
         # Extract embeddings
-        self.eval_cache = EmbeddingCache(
+        self.predict_cache = EmbeddingCache(
             embedder=self.embedder,
             texts=texts,
             cache_path=cache_path,
@@ -261,7 +261,7 @@ class ProficiencyProbingPipeline:
             max_length=self.max_length,
             show_progress=self.show_progress
         )
-        embeddings= self.eval_cache.get_embeddings()
+        embeddings= self.predict_cache.get_embeddings()
         
         # Predict
         if return_probabilities:
