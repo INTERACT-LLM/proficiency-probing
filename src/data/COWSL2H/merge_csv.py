@@ -2,6 +2,7 @@
 # All flies is in the folder csv_corpus, and the output file will be called merged_cowsl2h.csv
 # %%
 import pandas as pd
+import numpy as np
 import glob
 import os
 
@@ -22,6 +23,30 @@ for file in csv_files:
 
 # Concatenate all DataFrames into a single DataFrame
 merged_df = pd.concat(dataframes, ignore_index=True)
+
+
+# Clean writing ability column by converting textual descriptions to numeric values
+def convert_writing_ability(value):
+    if isinstance(value, str):
+        value = value.strip().lower()
+        if value == "Extremely uncomfortable" or value == "1.0":
+            return 1
+        elif value == "Uncomfortable" or value == "2.0":
+            return 2
+        elif value == "Neither comfortable nor uncomfortable" or value == "3.0":
+            return 3
+        elif value == "Comfortable" or value == "4.0":
+            return 4
+        elif value == "Extremely comfortable" or value == "5.0":
+            return 5
+    try:
+        return int(value)
+    except ValueError:
+        return np.nan  # Return NaN for any non-convertible values
+    
+
+merged_df["writing ability"] = merged_df["writing ability"].apply(convert_writing_ability)
+
 
 # Save the merged DataFrame to a new csv file
 merged_df.to_csv(output_file, index=False)
