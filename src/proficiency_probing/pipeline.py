@@ -11,6 +11,7 @@ import json
 
 from .embedder import TextEmbedder
 from .probe import OrdinalProbe
+from .cacher import EmbeddingCache
 
 
 class ProficiencyProbingPipeline:
@@ -32,9 +33,11 @@ class ProficiencyProbingPipeline:
         self,
         model_name: str = "bert-base-uncased",
         layer_index: int = -1,
-        head_index: Optional[int] = None,
         pooling: str = "mean",
-        device: Optional[str] = None
+        device: Optional[str] = None,
+        embedding_batch_size: int = 32,
+        max_length: int = 512,
+        show_progress: bool = True
     ):
         """
         Initialize the pipeline.
@@ -42,32 +45,37 @@ class ProficiencyProbingPipeline:
         Args:
             model_name: Name or path of the HuggingFace model
             layer_index: Which layer to extract embeddings from
-            head_index: Which attention head to use (None for full representation)
             pooling: Pooling strategy ('mean', 'cls', or 'max')
             device: Device to run on
+            embedding_batch_size: Batch size for embedding extraction
+            max_length: Maximum sequence length for embedding extraction
+            show_progress: Whether to show progress bars during embedding extraction
         """
+        self.embedding_batch_size = embedding_batch_size
+        self.max_length = max_length
+        self.show_progress = show_progress
         self.embedder = TextEmbedder(
             model_name=model_name,
             device=device,
             layer_index=layer_index,
-            head_index=head_index,
-            pooling=pooling
+            pooling=pooling,
         )
         self.probe = None
         self.is_fitted = False
         self.num_classes = None
+
         
     def fit(
         self,
         texts: List[str],
         labels: Union[List[int], np.ndarray],
+        cache_path: Optional[str] = None,
         val_size: float = 0.2,
         epochs: int = 50,
         batch_size: int = 32,
         learning_rate: float = 0.001,
         weight_decay: float = 0.01,
-        embedding_batch_size: int = 32,
-        max_length: int = 512,
+
         verbose: bool = True
     ) -> Dict[str, list]:
         """
@@ -76,13 +84,12 @@ class ProficiencyProbingPipeline:
         Args:
             texts: List of input texts
             labels: Ordinal proficiency labels (0, 1, 2, ...)
+            cache_path: Optional path to cache embeddings or load from cache if available
             val_size: Proportion of data to use for validation
             epochs: Number of training epochs
             batch_size: Batch size for probe training
-            learning_rate: Learning rate for probe training
             weight_decay: L2 regularization strength
-            embedding_batch_size: Batch size for embedding extraction
-            max_length: Maximum sequence length for tokenization
+            learning_rate: Learning rate for probe training
             verbose: Whether to print progress
             
         Returns:
@@ -92,7 +99,6 @@ class ProficiencyProbingPipeline:
             print(f"Pipeline Configuration:")
             print(f"  Model: {self.embedder.model_name}")
             print(f"  Layer: {self.embedder.layer_index}")
-            print(f"  Head: {self.embedder.head_index}")
             print(f"  Pooling: {self.embedder.pooling}")
             print()
         
@@ -104,12 +110,16 @@ class ProficiencyProbingPipeline:
             print(f"Embedding {len(texts)} texts...")
         
         # Extract embeddings
-        embeddings = self.embedder.embed_texts(
-            texts,
-            batch_size=embedding_batch_size,
-            max_length=max_length,
-            show_progress=verbose
+        self.fit_cache = EmbeddingCache(
+            embedder=self.embedder,
+            texts=texts,
+            cache_path=cache_path,
+            batch_size=self.embedding_batch_size,
+            max_length=self.max_length,
+            show_progress=self.show_progress
         )
+    
+        embeddings = self.fit_cache.get_embeddings()
         
         if verbose:
             print(f"Embedding dimension: {embeddings.shape[1]}")
@@ -159,9 +169,8 @@ class ProficiencyProbingPipeline:
         self,
         texts: List[str],
         labels: Union[List[int], np.ndarray],
+        cache_path: Optional[str] = None,
         batch_size: int = 32,
-        embedding_batch_size: int = 32,
-        max_length: int = 512,
         verbose: bool = True
     ) -> Dict[str, float]:
         """
@@ -170,6 +179,7 @@ class ProficiencyProbingPipeline:
         Args:
             texts: List of input texts
             labels: True ordinal labels
+            cache_path: Optional path to cache embeddings or load from cache if available
             batch_size: Batch size for probe evaluation
             embedding_batch_size: Batch size for embedding extraction
             max_length: Maximum sequence length
@@ -178,22 +188,28 @@ class ProficiencyProbingPipeline:
         Returns:
             Dictionary with evaluation metrics
         """
-        if not self.is_fitted:
+        if not self.is_fitted: 
             raise ValueError("Pipeline must be fitted before evaluation")
+        assert self.probe is not None  # for type checker
         
         if verbose:
             print(f"Evaluating on {len(texts)} texts...")
         
         # Extract embeddings
-        embeddings = self.embedder.embed_texts(
-            texts,
-            batch_size=embedding_batch_size,
-            max_length=max_length,
-            show_progress=verbose
+        self.eval_cache = EmbeddingCache(
+            embedder=self.embedder,
+            texts=texts,
+            cache_path=cache_path,
+            batch_size=self.embedding_batch_size,
+            max_length=self.max_length,
+            show_progress=self.show_progress
         )
+        embeddings= self.eval_cache.get_embeddings()
         
         # Evaluate probe
         labels = np.array(labels)
+
+
         metrics = self.probe.evaluate(
             embeddings,
             labels,
@@ -206,15 +222,15 @@ class ProficiencyProbingPipeline:
             print(f"  Loss: {metrics['loss']:.4f}")
             print(f"  Accuracy: {metrics['accuracy']:.4f}")
             print(f"  MAE: {metrics['mae']:.4f}")
+            print(f"  QWK: {metrics['qwk']:.4f}")
         
         return metrics
     
     def predict(
         self,
         texts: List[str],
+        cache_path: Optional[str] = None,
         batch_size: int = 32,
-        embedding_batch_size: int = 32,
-        max_length: int = 512,
         return_probabilities: bool = False,
         verbose: bool = False
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
@@ -234,14 +250,18 @@ class ProficiencyProbingPipeline:
         """
         if not self.is_fitted:
             raise ValueError("Pipeline must be fitted before prediction")
-        
+        assert self.probe is not None # for type checker
+
         # Extract embeddings
-        embeddings = self.embedder.embed_texts(
-            texts,
-            batch_size=embedding_batch_size,
-            max_length=max_length,
-            show_progress=verbose
+        self.predict_cache = EmbeddingCache(
+            embedder=self.embedder,
+            texts=texts,
+            cache_path=cache_path,
+            batch_size=self.embedding_batch_size,
+            max_length=self.max_length,
+            show_progress=self.show_progress
         )
+        embeddings= self.predict_cache.get_embeddings()
         
         # Predict
         if return_probabilities:
@@ -281,6 +301,7 @@ class ProficiencyProbingPipeline:
         """
         if not self.is_fitted:
             raise ValueError("Pipeline must be fitted before evaluation")
+        assert self.probe is not None  # for type checker
         
         results = {}
         
@@ -320,6 +341,8 @@ class ProficiencyProbingPipeline:
         """
         if not self.is_fitted:
             raise ValueError("Pipeline must be fitted before saving")
+        assert self.probe is not None  # for type checker
+    
         
         os.makedirs(path, exist_ok=True)
         
@@ -327,7 +350,6 @@ class ProficiencyProbingPipeline:
         config = {
             "model_name": self.embedder.model_name,
             "layer_index": self.embedder.layer_index,
-            "head_index": self.embedder.head_index,
             "pooling": self.embedder.pooling,
             "num_classes": self.num_classes,
             "input_dim": self.probe.input_dim
@@ -361,7 +383,6 @@ class ProficiencyProbingPipeline:
         pipeline = cls(
             model_name=config["model_name"],
             layer_index=config["layer_index"],
-            head_index=config["head_index"],
             pooling=config["pooling"],
             device=device
         )

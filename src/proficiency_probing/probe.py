@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from torch.utils.data import TensorDataset, DataLoader
 import numpy as np
 from typing import Optional, Tuple, Dict
-from sklearn.metrics import accuracy_score, mean_absolute_error
+from sklearn.metrics import accuracy_score, cohen_kappa_score, mean_absolute_error
 from tqdm import tqdm
 
 
@@ -156,13 +156,15 @@ class OrdinalProbe(nn.Module):
         history = {
             "train_loss": [],
             "train_acc": [],
-            "train_mae": []
+            "train_mae": [],
+            "train_qwk": []
         }
         
         if X_val is not None and y_val is not None:
             history["val_loss"] = []
             history["val_acc"] = []
             history["val_mae"] = []
+            history["val_qwk"] = [] # quadratic weighted kappa
         
         # Training loop
         for epoch in range(epochs):
@@ -202,14 +204,15 @@ class OrdinalProbe(nn.Module):
             train_loss = np.mean(train_losses)
             train_acc = accuracy_score(train_labels, train_preds)
             train_mae = mean_absolute_error(train_labels, train_preds)
+            train_qwk = cohen_kappa_score(train_labels, train_preds, weights='quadratic')
             
             history["train_loss"].append(train_loss)
             history["train_acc"].append(train_acc)
             history["train_mae"].append(train_mae)
-            
+            history["train_qwk"].append(train_qwk)
             if verbose:
                 print(f"Epoch {epoch+1}/{epochs} - "
-                      f"Loss: {train_loss:.4f}, Acc: {train_acc:.4f}, MAE: {train_mae:.4f}")
+                      f"Loss: {train_loss:.4f}, Acc: {train_acc:.4f}, MAE: {train_mae:.4f}, QWK: {train_qwk:.4f}")
             
             # Validation
             if X_val is not None and y_val is not None:
@@ -217,10 +220,10 @@ class OrdinalProbe(nn.Module):
                 history["val_loss"].append(val_metrics["loss"])
                 history["val_acc"].append(val_metrics["accuracy"])
                 history["val_mae"].append(val_metrics["mae"])
-                
+                history["val_qwk"].append(val_metrics["qwk"])
                 if verbose:
                     print(f"  Val - Loss: {val_metrics['loss']:.4f}, "
-                          f"Acc: {val_metrics['accuracy']:.4f}, MAE: {val_metrics['mae']:.4f}")
+                          f"Acc: {val_metrics['accuracy']:.4f}, MAE: {val_metrics['mae']:.4f}, QWK: {val_metrics['qwk']:.4f}")
         
         return history
     
@@ -276,7 +279,8 @@ class OrdinalProbe(nn.Module):
         return {
             "loss": np.mean(losses),
             "accuracy": accuracy_score(all_labels, all_preds),
-            "mae": mean_absolute_error(all_labels, all_preds)
+            "mae": mean_absolute_error(all_labels, all_preds),
+            "qwk": cohen_kappa_score(all_labels, all_preds, weights='quadratic')
         }
     
     def predict_proba(
@@ -335,3 +339,50 @@ class OrdinalProbe(nn.Module):
         """
         probs = self.predict_proba(X, batch_size=batch_size, device=device)
         return np.argmax(probs, axis=1)
+    def get_linear_scores(
+        self,
+        X: np.ndarray,
+        batch_size: int = 32,
+        device: Optional[str] = None
+    ) -> np.ndarray:
+        """
+        Extract the raw linear projection scores (before thresholding).
+        
+        Args:
+            X: Embeddings [num_samples, input_dim]
+            batch_size: Batch size for prediction
+            device: Device to predict on
+            
+        Returns:
+            Linear scores [num_samples] - the latent variable before thresholds
+        """
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+        self.to(device)
+        self.eval()
+        
+        X_tensor = torch.FloatTensor(X)
+        dataset = TensorDataset(X_tensor)
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+        
+        all_scores = []
+        
+        with torch.no_grad():
+            for (batch_X,) in loader:
+                batch_X = batch_X.to(device)
+                projected = self.linear(batch_X).squeeze(-1)  # [batch_size]
+                all_scores.append(projected.cpu().numpy())
+        
+        return np.concatenate(all_scores)
+    
+    def get_thresholds(self) -> np.ndarray:
+        """
+        Get the learned thresholds.
+        
+        Returns:
+            Threshold values [num_classes - 1]
+        """
+        with torch.no_grad():
+            sorted_thresholds = torch.sort(self.thresholds)[0]
+            return sorted_thresholds.cpu().numpy()
