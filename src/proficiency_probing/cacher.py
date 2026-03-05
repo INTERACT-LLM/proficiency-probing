@@ -5,12 +5,12 @@ from typing import Optional, Union, List
 import os
 import numpy as np
 from .embedder import TextEmbedder
-from .LLM_embedder import DecoderEmbedder  # NEW
+
 
 class EmbeddingCache:
     def __init__(
         self,
-        embedder: Optional[Union[TextEmbedder, DecoderEmbedder]] = None,
+        embedder: Optional[Union[TextEmbedder]] = None,
         texts: Optional[list] = None,
         cache_path: Optional[str] = None,
         batch_size: int = 32,

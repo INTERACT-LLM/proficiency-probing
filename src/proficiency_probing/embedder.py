@@ -133,7 +133,7 @@ class TextEmbedder:
                 for layer_idx in indices:
                     hidden_states = outputs.hidden_states[layer_idx]
                     embeddings = self._pool_embeddings(hidden_states, encoded["attention_mask"])
-                    all_embeddings[layer_idx].append(embeddings.cpu().numpy())
+                    all_embeddings[layer_idx].append(embeddings.cpu().to(torch.float32).numpy())
 
         result = {idx: np.vstack(embs) for idx, embs in all_embeddings.items()}
         return result if multi_layer else result[self.layer_index]
