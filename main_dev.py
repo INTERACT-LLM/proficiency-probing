@@ -88,8 +88,6 @@ cache = EmbeddingCache(
     )
 
 cefr_embeddings = cache.get_embeddings()
-
-
 # %%
 print("=" * 70)
 print("Fit linear regression probes and evaluate")
