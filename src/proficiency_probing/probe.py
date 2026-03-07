@@ -7,101 +7,94 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import TensorDataset, DataLoader
 import numpy as np
-from typing import Optional, Tuple, Dict
+from typing import Optional, Dict
 from sklearn.metrics import accuracy_score, cohen_kappa_score, mean_absolute_error
 from tqdm import tqdm
 
 
 class OrdinalProbe(nn.Module):
     """
-    Linear probe for ordinal regression.
-    
-    Uses a cumulative link model approach where we predict whether the input
-    belongs to class k or higher for each threshold k. This respects the
-    ordinal nature of proficiency labels.
-    
+    Linear probe for ordinal regression using a cumulative link model.
+
+    Projects input embeddings to a scalar latent variable, then compares
+    against learned thresholds to produce ordinal class probabilities.
+
+    Thresholds are reparametrized to guarantee ordering: the first threshold
+    is free, and subsequent thresholds are first_threshold + cumsum(exp(log_gaps)),
+    which are always positive and thus always increasing.
+
     Attributes:
-        input_dim: Dimension of input embeddings
+        input_dim:   Dimension of input embeddings
         num_classes: Number of ordinal classes
-        linear: Linear projection layer
-        thresholds: Learnable threshold parameters
+        linear:      Linear projection to scalar latent variable
+        threshold_0: First (lowest) threshold
+        log_gaps:    Log of gaps between consecutive thresholds
     """
-    
+
     def __init__(self, input_dim: int, num_classes: int):
         """
-        Initialize the ordinal probe.
-        
         Args:
-            input_dim: Dimension of input embeddings
+            input_dim:   Dimension of input embeddings
             num_classes: Number of ordinal proficiency levels
         """
         super().__init__()
         self.input_dim = input_dim
         self.num_classes = num_classes
-        
-        # Linear projection to a scalar
+
         self.linear = nn.Linear(input_dim, 1)
-        
-        # Learnable thresholds (num_classes - 1 thresholds for num_classes classes)
-        # Initialize with evenly spaced values
-        initial_thresholds = torch.linspace(-2, 2, num_classes - 1)
-        self.thresholds = nn.Parameter(initial_thresholds)
-    
+
+        # Reparametrize thresholds to enforce ordering:
+        #   thresholds = [t0, t0 + exp(g0), t0 + exp(g0) + exp(g1), ...]
+        self.threshold_0 = nn.Parameter(torch.tensor(0.0))
+        if num_classes > 2:
+            self.log_gaps = nn.Parameter(torch.zeros(num_classes - 2))
+        else:
+            self.log_gaps = None
+
+    def _get_thresholds(self) -> torch.Tensor:
+        """Build ordered threshold vector from reparametrized parameters."""
+        if self.log_gaps is not None:
+            gaps = torch.exp(self.log_gaps)
+            rest = self.threshold_0 + torch.cumsum(gaps, dim=0)
+            return torch.cat([self.threshold_0.unsqueeze(0), rest])
+        return self.threshold_0.unsqueeze(0)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass.
-        
         Args:
             x: Input embeddings [batch_size, input_dim]
-            
+
         Returns:
             Class probabilities [batch_size, num_classes]
         """
-        # Project to scalar
         projected = self.linear(x)  # [batch_size, 1]
-        
-        # Ensure thresholds are sorted
-        sorted_thresholds = torch.sort(self.thresholds)[0]
-        
-        # Compute cumulative probabilities
+        thresholds = self._get_thresholds()  # [num_classes - 1]
+
         # P(y >= k) = sigmoid(projected - threshold_k)
-        cumulative_probs = []
-        for threshold in sorted_thresholds:
-            prob = torch.sigmoid(projected - threshold)
-            cumulative_probs.append(prob)
-        
-        cumulative_probs = torch.cat(cumulative_probs, dim=1)  # [batch_size, num_classes-1]
-        
-        # Convert to class probabilities
-        # P(y = 0) = 1 - P(y >= 1)
-        # P(y = k) = P(y >= k) - P(y >= k+1) for 0 < k < num_classes-1
-        # P(y = num_classes-1) = P(y >= num_classes-1)
-        
-        probs = []
-        # First class
-        probs.append(1 - cumulative_probs[:, 0:1])
-        # Middle classes
-        for i in range(cumulative_probs.size(1) - 1):
-            prob = cumulative_probs[:, i:i+1] - cumulative_probs[:, i+1:i+2]
-            probs.append(prob)
-        # Last class
-        probs.append(cumulative_probs[:, -1:])
-        
-        return torch.cat(probs, dim=1)
-    
-    def predict(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Predict class labels.
-        
-        Args:
-            x: Input embeddings [batch_size, input_dim]
-            
-        Returns:
-            Predicted class labels [batch_size]
-        """
-        probs = self.forward(x)
-        return torch.argmax(probs, dim=1)
-    
+        cumulative_probs = torch.sigmoid(
+            projected - thresholds.unsqueeze(0)
+        )  # [batch_size, num_classes - 1]
+
+        # Convert cumulative to class probabilities
+        # P(y = 0)              = 1 - P(y >= 1)
+        # P(y = k)              = P(y >= k) - P(y >= k+1)
+        # P(y = num_classes-1)  = P(y >= num_classes-1)
+        probs = torch.cat([
+            1 - cumulative_probs[:, :1],
+            cumulative_probs[:, :-1] - cumulative_probs[:, 1:],
+            cumulative_probs[:, -1:],
+        ], dim=1)  # [batch_size, num_classes]
+
+        return probs
+
+    def reset_parameters(self):
+        """Reset all parameters to their initial values."""
+        self.linear.reset_parameters()
+        with torch.no_grad():
+            self.threshold_0.data = torch.tensor(0.0)
+            if self.log_gaps is not None:
+                self.log_gaps.data = torch.zeros(self.num_classes - 2)
+
     def fit(
         self,
         X_train: np.ndarray,
@@ -113,276 +106,192 @@ class OrdinalProbe(nn.Module):
         learning_rate: float = 0.001,
         weight_decay: float = 0.01,
         device: Optional[str] = None,
-        verbose: bool = True
+        verbose: bool = True,
+        reset: bool = True,
     ) -> Dict[str, list]:
         """
         Fit the probe to training data.
-        
+
         Args:
-            X_train: Training embeddings [num_samples, input_dim]
-            y_train: Training labels [num_samples] (ordinal values)
-            X_val: Optional validation embeddings
-            y_val: Optional validation labels
-            epochs: Number of training epochs
-            batch_size: Batch size for training
+            X_train:       Training embeddings [num_samples, input_dim]
+            y_train:       Training labels [num_samples]
+            X_val:         Optional validation embeddings
+            y_val:         Optional validation labels
+            epochs:        Number of training epochs
+            batch_size:    Batch size
             learning_rate: Learning rate
-            weight_decay: L2 regularization strength
-            device: Device to train on
-            verbose: Whether to print training progress
-            
+            weight_decay:  L2 regularisation strength
+            device:        Device string (defaults to cuda if available)
+            verbose:       Print per-epoch metrics
+            reset:         Reset parameters before training (default True)
+
         Returns:
-            Dictionary with training history
+            Training history dict with loss/acc/mae/qwk per epoch
         """
+        if reset:
+            self.reset_parameters()
+
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
-        
+
         self.to(device)
-        
-        # Convert to tensors
-        X_train_tensor = torch.FloatTensor(X_train)
-        y_train_tensor = torch.LongTensor(y_train)
-        
-        train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        
-        # Setup optimizer
-        optimizer = torch.optim.AdamW(
-            self.parameters(),
-            lr=learning_rate,
-            weight_decay=weight_decay
+
+        train_loader = DataLoader(
+            TensorDataset(torch.FloatTensor(X_train), torch.LongTensor(y_train)),
+            batch_size=batch_size,
+            shuffle=True,
         )
-        
-        # Training history
-        history = {
-            "train_loss": [],
-            "train_acc": [],
-            "train_mae": [],
-            "train_qwk": []
+
+        optimizer = torch.optim.AdamW(
+            self.parameters(), lr=learning_rate, weight_decay=weight_decay
+        )
+
+        history: Dict[str, list] = {
+            "train_loss": [], "train_acc": [], "train_mae": [], "train_qwk": []
         }
-        
         if X_val is not None and y_val is not None:
-            history["val_loss"] = []
-            history["val_acc"] = []
-            history["val_mae"] = []
-            history["val_qwk"] = [] # quadratic weighted kappa
-        
-        # Training loop
+            history.update({"val_loss": [], "val_acc": [], "val_mae": [], "val_qwk": []})
+
         for epoch in range(epochs):
             self.train()
-            train_losses = []
-            train_preds = []
-            train_labels = []
-            
-            iterator = train_loader
-            if verbose:
-                iterator = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}")
-            
+            train_losses, train_preds, train_labels = [], [], []
+
+            iterator = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}") if verbose else train_loader
+
             for batch_X, batch_y in iterator:
-                batch_X = batch_X.to(device)
-                batch_y = batch_y.to(device)
-                
+                batch_X, batch_y = batch_X.to(device), batch_y.to(device)
+
                 optimizer.zero_grad()
-                
-                # Forward pass
-                probs = self.forward(batch_X)
-                
-                # Cross-entropy loss
-                loss = F.cross_entropy(probs, batch_y)
-                
-                # Backward pass
+                loss = F.cross_entropy(self.forward(batch_X), batch_y)
                 loss.backward()
                 optimizer.step()
-                
+
                 train_losses.append(loss.item())
-                
-                # Predictions
-                preds = torch.argmax(probs, dim=1)
+                preds = torch.argmax(self.forward(batch_X), dim=1)
                 train_preds.extend(preds.cpu().numpy())
                 train_labels.extend(batch_y.cpu().numpy())
-            
-            # Compute metrics
-            train_loss = np.mean(train_losses)
-            train_acc = accuracy_score(train_labels, train_preds)
-            train_mae = mean_absolute_error(train_labels, train_preds)
-            train_qwk = cohen_kappa_score(train_labels, train_preds, weights='quadratic')
-            
-            history["train_loss"].append(train_loss)
-            history["train_acc"].append(train_acc)
-            history["train_mae"].append(train_mae)
-            history["train_qwk"].append(train_qwk)
-            if verbose:
-                print(f"Epoch {epoch+1}/{epochs} - "
-                      f"Loss: {train_loss:.4f}, Acc: {train_acc:.4f}, MAE: {train_mae:.4f}, QWK: {train_qwk:.4f}")
-            
-            # Validation
+
+            self._log_metrics(history, "train", train_losses, train_labels, train_preds, verbose, epoch, epochs)
+
             if X_val is not None and y_val is not None:
                 val_metrics = self.evaluate(X_val, y_val, device=device)
-                history["val_loss"].append(val_metrics["loss"])
-                history["val_acc"].append(val_metrics["accuracy"])
-                history["val_mae"].append(val_metrics["mae"])
-                history["val_qwk"].append(val_metrics["qwk"])
+                for k in ("loss", "acc", "mae", "qwk"):
+                    history[f"val_{k}"].append(val_metrics[k if k != "acc" else "accuracy"])
                 if verbose:
-                    print(f"  Val - Loss: {val_metrics['loss']:.4f}, "
-                          f"Acc: {val_metrics['accuracy']:.4f}, MAE: {val_metrics['mae']:.4f}, QWK: {val_metrics['qwk']:.4f}")
-        
+                    print(f"  Val  - Loss: {val_metrics['loss']:.4f}, Acc: {val_metrics['accuracy']:.4f}, "
+                          f"MAE: {val_metrics['mae']:.4f}, QWK: {val_metrics['qwk']:.4f}")
+
         return history
-    
+
+    @staticmethod
+    def _log_metrics(history, split, losses, labels, preds, verbose, epoch, epochs):
+        loss = np.mean(losses)
+        acc  = accuracy_score(labels, preds)
+        mae  = mean_absolute_error(labels, preds)
+        qwk  = cohen_kappa_score(labels, preds, weights="quadratic")
+        history[f"{split}_loss"].append(loss)
+        history[f"{split}_acc"].append(acc)
+        history[f"{split}_mae"].append(mae)
+        history[f"{split}_qwk"].append(qwk)
+        if verbose:
+            print(f"Epoch {epoch+1}/{epochs} - Loss: {loss:.4f}, Acc: {acc:.4f}, MAE: {mae:.4f}, QWK: {qwk:.4f}")
+
     def evaluate(
         self,
         X: np.ndarray,
         y: np.ndarray,
         batch_size: int = 32,
-        device: Optional[str] = None
+        device: Optional[str] = None,
     ) -> Dict[str, float]:
         """
         Evaluate the probe on data.
-        
-        Args:
-            X: Embeddings [num_samples, input_dim]
-            y: Labels [num_samples]
-            batch_size: Batch size for evaluation
-            device: Device to evaluate on
-            
+
         Returns:
-            Dictionary with metrics (loss, accuracy, MAE)
+            Dict with keys: loss, accuracy, mae, qwk
         """
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
-        
+
         self.to(device)
         self.eval()
-        
-        X_tensor = torch.FloatTensor(X)
-        y_tensor = torch.LongTensor(y)
-        
-        dataset = TensorDataset(X_tensor, y_tensor)
-        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
-        
-        losses = []
-        all_preds = []
-        all_labels = []
-        
+
+        loader = DataLoader(
+            TensorDataset(torch.FloatTensor(X), torch.LongTensor(y)),
+            batch_size=batch_size,
+            shuffle=False,
+        )
+
+        losses, all_preds, all_labels = [], [], []
+
         with torch.no_grad():
             for batch_X, batch_y in loader:
-                batch_X = batch_X.to(device)
-                batch_y = batch_y.to(device)
-                
+                batch_X, batch_y = batch_X.to(device), batch_y.to(device)
                 probs = self.forward(batch_X)
-                loss = F.cross_entropy(probs, batch_y)
-                
-                losses.append(loss.item())
-                
-                preds = torch.argmax(probs, dim=1)
-                all_preds.extend(preds.cpu().numpy())
+                losses.append(F.cross_entropy(probs, batch_y).item())
+                all_preds.extend(torch.argmax(probs, dim=1).cpu().numpy())
                 all_labels.extend(batch_y.cpu().numpy())
-        
+
         return {
-            "loss": np.mean(losses),
+            "loss":     np.mean(losses),
             "accuracy": accuracy_score(all_labels, all_preds),
-            "mae": mean_absolute_error(all_labels, all_preds),
-            "qwk": cohen_kappa_score(all_labels, all_preds, weights='quadratic')
+            "mae":      mean_absolute_error(all_labels, all_preds),
+            "qwk":      cohen_kappa_score(all_labels, all_preds, weights="quadratic"),
         }
-    
+
     def predict_proba(
         self,
         X: np.ndarray,
         batch_size: int = 32,
-        device: Optional[str] = None
+        device: Optional[str] = None,
     ) -> np.ndarray:
         """
-        Predict class probabilities.
-        
-        Args:
-            X: Embeddings [num_samples, input_dim]
-            batch_size: Batch size for prediction
-            device: Device to predict on
-            
         Returns:
             Class probabilities [num_samples, num_classes]
         """
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
-        
+
         self.to(device)
         self.eval()
-        
-        X_tensor = torch.FloatTensor(X)
-        dataset = TensorDataset(X_tensor)
-        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
-        
+
+        loader = DataLoader(TensorDataset(torch.FloatTensor(X)), batch_size=batch_size, shuffle=False)
         all_probs = []
-        
+
         with torch.no_grad():
             for (batch_X,) in loader:
-                batch_X = batch_X.to(device)
-                probs = self.forward(batch_X)
-                all_probs.append(probs.cpu().numpy())
-        
+                all_probs.append(self.forward(batch_X.to(device)).cpu().numpy())
+
         return np.vstack(all_probs)
-    
-    def predict_labels(
-        self,
-        X: np.ndarray,
-        batch_size: int = 32,
-        device: Optional[str] = None
-    ) -> np.ndarray:
-        """
-        Predict class labels.
-        
-        Args:
-            X: Embeddings [num_samples, input_dim]
-            batch_size: Batch size for prediction
-            device: Device to predict on
-            
-        Returns:
-            Predicted labels [num_samples]
-        """
-        probs = self.predict_proba(X, batch_size=batch_size, device=device)
-        return np.argmax(probs, axis=1)
+
+    def predict_labels(self, X: np.ndarray, batch_size: int = 32, device: Optional[str] = None) -> np.ndarray:
+        """Returns predicted class labels [num_samples]."""
+        return np.argmax(self.predict_proba(X, batch_size=batch_size, device=device), axis=1)
+
     def get_linear_scores(
         self,
         X: np.ndarray,
         batch_size: int = 32,
-        device: Optional[str] = None
+        device: Optional[str] = None,
     ) -> np.ndarray:
         """
-        Extract the raw linear projection scores (before thresholding).
-        
-        Args:
-            X: Embeddings [num_samples, input_dim]
-            batch_size: Batch size for prediction
-            device: Device to predict on
-            
-        Returns:
-            Linear scores [num_samples] - the latent variable before thresholds
+        Returns the raw latent scalar before thresholding [num_samples].
         """
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
-        
+
         self.to(device)
         self.eval()
-        
-        X_tensor = torch.FloatTensor(X)
-        dataset = TensorDataset(X_tensor)
-        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
-        
+
+        loader = DataLoader(TensorDataset(torch.FloatTensor(X)), batch_size=batch_size, shuffle=False)
         all_scores = []
-        
+
         with torch.no_grad():
             for (batch_X,) in loader:
-                batch_X = batch_X.to(device)
-                projected = self.linear(batch_X).squeeze(-1)  # [batch_size]
-                all_scores.append(projected.cpu().numpy())
-        
+                all_scores.append(self.linear(batch_X.to(device)).squeeze(-1).cpu().numpy())
+
         return np.concatenate(all_scores)
-    
+
     def get_thresholds(self) -> np.ndarray:
-        """
-        Get the learned thresholds.
-        
-        Returns:
-            Threshold values [num_classes - 1]
-        """
+        """Returns the learned threshold values [num_classes - 1]."""
         with torch.no_grad():
-            sorted_thresholds = torch.sort(self.thresholds)[0]
-            return sorted_thresholds.cpu().numpy()
+            return self._get_thresholds().cpu().numpy()

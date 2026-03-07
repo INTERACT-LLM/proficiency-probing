@@ -14,16 +14,17 @@ np.random.seed(889)
 # %%
 
 # Parameters for model and layer selection
-model_name="intfloat/multilingual-e5-base"
+# model_name="intfloat/multilingual-e5-base"
 # model_name="intfloat/multilingual-e5-large-instruct"
 # model_name="sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
-# model_name = "Qwen/Qwen3-Embedding-0.6B"
+model_name = "Qwen/Qwen3-Embedding-0.6B"
+# model_name = "Qwen/Qwen3-Embedding-4B"
 # model_name = "Qwen/Qwen3-Embedding-8B"
 
 
-pooling="mean"  # "mean", "cls", "max", or "last"
+pooling="last"  # "mean", "cls", "max", or "last"
 instruct_model = True # Flag for instruct models like Qwen that require a prompt for embedding:
-instruction: Optional[str] = "Instruct: Assess the English proficiency level of the following text.\nQuery: "
+instruction: Optional[str] = "Instruct: Assess the CEFR level of the following text.\nQuery: "
 
 # ========== Chunk Code ===========
 # Function to find probe layers based on the number of probes and total layers in the model
@@ -53,16 +54,6 @@ level_order = {"A1": 0, "A2": 1, "B1": 2, "B2": 3, "C1": 4, "C2": 5}
 cefr_df["cefr_level"] = cefr_df["cefr_level"].map(level_order)
 cefr_df["text"] = instruction + cefr_df["text"] if instruct_model else cefr_df["text"]
 
-
-
-
-# Load COWSL2h dataset
-print("Loading COWSL2h dataset...")
-# Load COWSL2H dataset
-cowsl2h_df = pd.read_csv("./src/data/COWSL2H/merged_cowsl2h.csv")
-cowsl2h_df = cowsl2h_df[["essay","writing ability","prompt"]]
-cowsl2h_df["essay"] = instruction + cowsl2h_df["essay"] if instruct_model else cowsl2h_df["essay"]
-
 # %% Embedding with Caching Chunk
 # Loading model
 print("=" * 70)
@@ -73,10 +64,12 @@ print()
 embedder = TextEmbedder(
             model_name=model_name,
             pooling=pooling
-
         )
 
-layer_indices = find_probe_layers(embedder, num_probes=5)
+# layer_indices = find_probe_layers(embedder, num_probes=5)
+# Save all layers
+layer_indices = list(range(len(embedder.model.layers)))
+
 
 # %% 
 # Embedding with Caching
@@ -95,22 +88,6 @@ cache = EmbeddingCache(
     )
 
 cefr_embeddings = cache.get_embeddings()
-
-print("=" * 70)
-print("Embeddings COWSL2H with Caching")
-print("=" * 70)
-print()
-
-cache_path_cowsl2h = f"./src/cache/cowsl2h_{model_name.replace('/', '_')}_{pooling}.npz"
-cowsl2h_cache = EmbeddingCache(
-    embedder=embedder, 
-    texts= cowsl2h_df["essay"].tolist(),
-    cache_path=cache_path_cowsl2h,
-    layer_indices=layer_indices
-    )
-
-cowsl2h_embeddings = cowsl2h_cache.get_embeddings()
-
 
 
 # %%
