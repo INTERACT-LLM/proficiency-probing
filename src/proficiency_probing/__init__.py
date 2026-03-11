@@ -6,7 +6,24 @@ and testing generalizability of the probe on other distributions.
 from .embedder import TextEmbedder
 from .cacher import EmbeddingCache
 from .probe import OrdinalProbe
+from .proficiency_model import (
+    ProficiencyModel,
+    MLPBackbone,
+    OrdinalHead,
+    RegressionHead,
+    BaseHead,
+)
 from .pipeline import ProficiencyProbingPipeline
 
 __version__ = "0.1.0"
-__all__ = ["TextEmbedder", "EmbeddingCache", "OrdinalProbe", "ProficiencyProbingPipeline"]
+__all__ = [
+    "TextEmbedder",
+    "EmbeddingCache",
+    "OrdinalProbe",
+    "ProficiencyModel",
+    "MLPBackbone",
+    "OrdinalHead",
+    "RegressionHead",
+    "BaseHead",
+    "ProficiencyProbingPipeline",
+]
