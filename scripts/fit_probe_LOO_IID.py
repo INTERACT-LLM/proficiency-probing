@@ -1,3 +1,6 @@
+# Set root directory to the project root
+import os
+os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from typing import Optional
 import numpy as np
 import pandas as pd
@@ -13,20 +16,11 @@ from src.proficiency_probing import EmbeddingCache
 # ---------------------------------------------------------------------------
 
 model_configs = [
+
     {
-        "model_name": "Qwen/Qwen3-Embedding-0.6B",
+        "model_name": "google/embeddinggemma-300M",
         "pooling": "last",
-        "layer_keys": {1, 5, 10, 15, 20, 25, 27},        # 27 layers, cap at 25
-    },
-    {
-        "model_name": "Qwen/Qwen3-Embedding-4B",
-        "pooling": "last",
-        "layer_keys": {1, 5, 10, 15, 20, 25, 30, 35},
-    },
-    {
-        "model_name": "Qwen/Qwen3-Embedding-8B",
-        "pooling": "last",
-        "layer_keys": {1, 5, 10, 15, 20, 25, 30, 35},
+        "layer_keys": {1, 5, 10, 15, 20, 23},
     },
 ]
 
@@ -202,7 +196,7 @@ for mc in model_configs:
     # Save per model
     iid_df = pd.DataFrame(iid_records)
     ood_df = pd.DataFrame(ood_records)
-    base   = f"./src/results/loo_limited_{model_name.replace('/', '_')}_{pooling}"
+    base   = f"./src/results/loo_{model_name.replace('/', '_')}_{pooling}"
     iid_df.to_csv(f"{base}_iid_predictions.csv", index=False)
     ood_df.to_csv(f"{base}_ood_predictions.csv", index=False)
-    print(f"\nSaved -> {base}_iid/ood_predictions.csv
+    print(f"\nSaved -> {base}_iid/ood_predictions.csv")

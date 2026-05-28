@@ -36,7 +36,7 @@ class TextEmbedder:
             pooling: Pooling strategy - 'mean', 'cls', or 'max'
         """
         if device is None:
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
         else:
             self.device = device
             # Validate device
@@ -50,6 +50,7 @@ class TextEmbedder:
         self.model = AutoModel.from_pretrained(
             model_name,
             output_hidden_states=True,
+            trust_remote_code=True,
 
         ).to(self.device)
         self.model.eval() # Set model to evaluation mode (no LLM training is done in this repo!!)
