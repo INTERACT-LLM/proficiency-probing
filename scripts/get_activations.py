@@ -14,8 +14,15 @@ import pandas as pd
 np.random.seed(889)
 # %%
 # Parameters for model and layer selection
-# model_names = ["Qwen/Qwen3-Embedding-0.6B", "Qwen/Qwen3-Embedding-4B", "Qwen/Qwen3-Embedding-8B"]
-model_names = ["google/embeddinggemma-300M"]
+model_names = [
+    "Qwen/Qwen3-Embedding-0.6B", 
+    "Qwen/Qwen3-Embedding-4B", 
+    "Qwen/Qwen3-Embedding-8B", 
+    "google/embeddinggemma-300M", 
+    "intfloat/multilingual-e5-large", 
+    "intfloat/e5-mistral-7b-instruct", 
+    "nvidia/llama-embed-nemotron-8b"]
+
 for model_name in model_names:
     pooling="last"  # "mean", "cls", "max", or "last"
     instruct_model = True # Flag for instruct models like Qwen that require a prompt for embedding:
@@ -64,7 +71,7 @@ for model_name in model_names:
 
     # layer_indices = find_probe_layers(embedder, num_probes=5)
     # Save all layers
-    layer_indices = list(range(len(embedder.model.layers)))
+    layer_indices = list(range(len(embedder.model.encoder.layer)))
     # Embedding with Caching
     print("=" * 70)
     print("Embeddings CEFR with Caching")

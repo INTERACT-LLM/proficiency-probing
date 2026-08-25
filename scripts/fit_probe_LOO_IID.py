@@ -1,3 +1,4 @@
+#%%
 # Set root directory to the project root
 import os
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -14,13 +15,43 @@ from src.proficiency_probing import EmbeddingCache
 # ---------------------------------------------------------------------------
 # Model configs
 # ---------------------------------------------------------------------------
-
+# Done
 model_configs = [
-
+    {
+        "model_name": "Qwen/Qwen3-Embedding-0.6B",
+        "pooling": "last",
+        "layer_keys": {1, 5, 10, 15, 20, 25, 27},
+    },
+    {
+        "model_name": "Qwen/Qwen3-Embedding-4B",
+        "pooling": "last",
+        "layer_keys": {1, 5, 10, 15, 20, 25, 30, 35},
+    },
+    {
+        "model_name": "Qwen/Qwen3-Embedding-8B",
+        "pooling": "last",
+        "layer_keys": {1, 5, 10, 15, 20, 25, 30, 35},
+    },
     {
         "model_name": "google/embeddinggemma-300M",
-        "pooling": "last",
+        "pooling": "mean",
         "layer_keys": {1, 5, 10, 15, 20, 23},
+    },
+    {
+        "model_name": "intfloat/multilingual-e5-large",
+        "pooling": "mean",
+        "layer_keys": {1, 5, 10, 15, 20, 23},
+    },
+    {
+        "model_name": "intfloat/e5-mistral-7b-instruct",
+        "pooling": "last",
+        "layer_keys": {1, 5, 10, 15, 20, 25, 30 , 32},
+    },
+
+    {
+        "model_name": "nvidia/llama-embed-nemotron-8b",
+        "pooling": "mean",
+        "layer_keys": {1, 5, 10, 15, 20, 25, 30 , 32},
     },
 ]
 
@@ -61,7 +92,7 @@ def fit_linear_regression(X_train, y_train):
     return model, model.predict
 
 def fit_MLP_linear_regression(X_train, y_train):
-    model = MLPRegressor(hidden_layer_sizes=(X_train.shape[1],), max_iter=1000)
+    model = MLPRegressor(hidden_layer_sizes=(1024,), max_iter=1000)
     model.fit(X_train, y_train)
     return model, model.predict
 
@@ -196,7 +227,8 @@ for mc in model_configs:
     # Save per model
     iid_df = pd.DataFrame(iid_records)
     ood_df = pd.DataFrame(ood_records)
-    base   = f"./src/results/loo_{model_name.replace('/', '_')}_{pooling}"
+    base   = f"./src/results/loo_limited_{model_name.replace('/', '_')}_{pooling}_cpu"
     iid_df.to_csv(f"{base}_iid_predictions.csv", index=False)
     ood_df.to_csv(f"{base}_ood_predictions.csv", index=False)
     print(f"\nSaved -> {base}_iid/ood_predictions.csv")
+# %%
