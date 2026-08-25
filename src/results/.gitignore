@@ -1,5 +1,0 @@
-# Ignore everything in this directory
-# Folder for script plots outputs, no need to track them in git.
-*
-# Except this file
-!.gitignore

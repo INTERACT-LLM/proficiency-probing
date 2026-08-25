@@ -1,4 +1,5 @@
 # Ignore everything in this directory
-*
+recreate_npz.py
+
 # Except this file
 !.gitignore
